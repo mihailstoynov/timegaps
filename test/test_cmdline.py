@@ -560,64 +560,59 @@ class TestPathBasenameTime(Base):
 
 
 class TestFileFilter(Base):
-    """Filter tests involving temp files. Test various features, but no
+    """Filter tests involving temp files. Test basic filtering but no
     actions.
     """
 
-    def test_10_days_2_weeks_noaction_files(self):
-        self._10_days_2_weeks_noaction_dirs_or_files(self.mfile)
+    def test_filter_files(self):
+        self._filter_dirs_or_files(self.mfile)
 
-    def test_10_days_2_weeks_noaction_dirs(self):
-        self._10_days_2_weeks_noaction_dirs_or_files(self.mdir)
+    def test_filter_dirs(self):
+        self._filter_dirs_or_files(self.mdir)
 
-    def _10_days_2_weeks_noaction_dirs_or_files(self, mfile_or_dir):
-        # `mfile_or_dir` is either self.mfile or self.mdir, so that this test
-        # can easily be run against a set of files or dirs.
-        # Logically, this is a copy of test_10_days_2_weeks in test_api.py.
-        # This time, use real files.
-        # FSEs 1-11,14 must be accepted (12 FSEs). 15 FSEs are used as input
-        # (1 to 15 days old), i.e. 3 are to be rejected (FSEs 12, 13, 15).
+    def _filter_dirs_or_files(self, mfile_or_dir):
         now = time.time()
-        nowminusXdays = (now-(60*60*24*i+1) for i in range(1,16))
-        name_time_pairs = [
-            ("f%s" % (i+1,), t) for i,t in enumerate(nowminusXdays)]
-        for name, mtime in name_time_pairs:
-            mfile_or_dir(name, mtime)
+        one_hour_ago = now - 3600
+        two_hours_ago = now - 7200
+        mfile_or_dir("one_hour_ago", one_hour_ago)
+        mfile_or_dir("two_hours_ago", two_hours_ago)
 
-        itemargs = " ".join(name for name, _ in name_time_pairs)
-        a = ["f%s\n" % _ for _ in (1,2,3,4,5,6,7,8,9,10,11,14)]
-        r = ["f12\n", "f13\n", "f15\n"]
+        rules = "hours1"
+        itemargs = "one_hour_ago two_hours_ago"
+        a = ["one_hour_ago\n"]
+        r = ["two_hours_ago\n"]
 
-        t = self.run("days10,weeks2 %s" % itemargs)
+        t = self.run("%s %s" % (rules, itemargs))
         t.assert_in_stdout(r)
         t.assert_not_in_stdout(a)
         t.assert_no_stderr()
 
         # Invert output.
-        t = self.run("-a days10,weeks2 %s" % itemargs)
+        t = self.run("-a %s %s" % (rules, itemargs))
         t.assert_in_stdout(a)
         t.assert_not_in_stdout(r)
         t.assert_no_stderr()
 
         # Use stdin input.
         s = "\n".join(itemargs.split()).encode(STDINENC)
-        t = self.run("-s -a days10,weeks2", sin=s)
+        t = self.run("-s -a %s" % rules, sin=s)
         t.assert_in_stdout(a)
         t.assert_not_in_stdout(r)
         t.assert_no_stderr()
 
         # Use stdin input, nullchar separation.
         s = "\0".join(itemargs.split()).encode(STDINENC)
-        t = self.run("-0 -s -a days10,weeks2", sin=s)
-        t.assert_in_stdout(["f%s\0" % _ for _ in (1,2,3,4,5,6,7,8,9,10,11,14)])
-        t.assert_not_in_stdout(["f12\0", "f13\0", "f15\0"])
+        t = self.run("-0 -s -a %s" % rules, sin=s)
+        t.assert_in_stdout(["one_hour_ago\0"])
+        t.assert_not_in_stdout(["two_hours_ago\0"])
         t.assert_no_stderr()
 
 
-class TestFileFilterActions(Base):
-    """Tests that involve filtering of file system entries. Tests apply actions
-    (delete, move). Tests involve creation and modification of temporary files
-    in the test run directory.
+class TestFileActions(Base):
+    """Tests that apply actions to filtered files (delete, move). Tests
+    involve creation and modification of temporary files in the test
+    run directory.
+
     """
     def test_simple_delete_file(self):
         self._test_simple_delete_file_or_dir(self.mfile)
@@ -633,51 +628,48 @@ class TestFileFilterActions(Base):
         t.assert_paths_not_exist("test")
 
     def gen_files_or_dirs(self, mfile_or_dir):
-        # `mfile_or_dir` is either self.mfile or self.mdir, so that this test
-        # can easily be run against a set of files or dirs.
-        # Test logic is explained in test_api: 10_days_2_weeks.
         now = time.time()
-        nowminusXdays = (now-(60*60*24*i+1) for i in range(1,16))
-        name_time_pairs = [
-            ("t%s" % (i+1,), t) for i,t in enumerate(nowminusXdays)]
-        # Create dir or file of name `name` for each name-mtime pair.
-        for name, mtime in name_time_pairs:
-            mfile_or_dir(name, mtime)
-        itemargs = " ".join(name for name, _ in name_time_pairs)
-        a_paths = ["t%s" % _ for _ in (1,2,3,4,5,6,7,8,9,10,11,14)]
-        r_paths = ["t12", "t13", "t15"]
-        a = ["%s\n" % _ for _ in a_paths]
-        r = ["%s\n" % _ for _ in r_paths]
-        return a, r, a_paths, r_paths, itemargs
+        one_hour_ago = now - 3600
+        two_hours_ago = now - 7200
+        mfile_or_dir("one_hour_ago", one_hour_ago)
+        mfile_or_dir("two_hours_ago", two_hours_ago)
 
-    def test_10_days_2_weeks_move_files(self):
-        self._10_days_2_weeks_move_dirs_or_files(self.mfile)
+        rules = "hours1"
+        itemargs = "one_hour_ago two_hours_ago"
+        a_paths = ["one_hour_ago"]
+        r_paths = ["two_hours_ago"]
+        a = ["%s\n" % path for path in a_paths]
+        r = ["%s\n" % path for path in r_paths]
+        return rules, a, r, a_paths, r_paths, itemargs
 
-    def test_10_days_2_weeks_move_dirs(self):
-        self._10_days_2_weeks_move_dirs_or_files(self.mdir)
+    def test_move_files(self):
+        self._move_dirs_or_files(self.mfile)
 
-    def _10_days_2_weeks_move_dirs_or_files(self, mfile_or_dir):
-        a, r, a_paths, r_paths, itemargs = self.gen_files_or_dirs(mfile_or_dir)
+    def test_move_dirs(self):
+        self._move_dirs_or_files(self.mdir)
+
+    def _move_dirs_or_files(self, mfile_or_dir):
+        rules, a, r, a_paths, r_paths, itemargs = self.gen_files_or_dirs(mfile_or_dir)
         tdir = "movehere"
         a_paths_moved = [os.path.join(tdir, _) for _ in a_paths]
         r_paths_moved = [os.path.join(tdir, _) for _ in r_paths]
 
         os.mkdir(os.path.join(self.rundir, tdir))
-        t = self.run("--move %s days10,weeks2 %s" % (tdir, itemargs))
+        t = self.run("--move %s %s %s" % (tdir, rules, itemargs))
         t.assert_in_stdout(r)
         t.assert_not_in_stdout(a)
         t.assert_no_stderr()
         t.assert_paths_exist(list(chain(a_paths, r_paths_moved)))
 
-    def test_10_days_2_weeks_delete_files(self):
-        self._10_days_2_weeks_delete_dirs_or_files(self.mfile)
+    def test_delete_files(self):
+        self._delete_dirs_or_files(self.mfile)
 
-    def test_10_days_2_weeks_delete_dirs(self):
-        self._10_days_2_weeks_delete_dirs_or_files(self.mdir)
+    def test_delete_dirs(self):
+        self._delete_dirs_or_files(self.mdir)
 
-    def _10_days_2_weeks_delete_dirs_or_files(self, mfile_or_dir):
-        a, r, a_paths, r_paths, itemargs = self.gen_files_or_dirs(mfile_or_dir)
-        t = self.run("--delete days10,weeks2 %s" % itemargs)
+    def _delete_dirs_or_files(self, mfile_or_dir):
+        rules, a, r, a_paths, r_paths, itemargs = self.gen_files_or_dirs(mfile_or_dir)
+        t = self.run("--delete %s %s" % (rules, itemargs))
         t.assert_in_stdout(r)
         t.assert_not_in_stdout(a)
         t.assert_no_stderr()
