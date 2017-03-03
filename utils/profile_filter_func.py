@@ -9,7 +9,10 @@ from itertools import chain
 from random import randint, shuffle
 import cProfile, pstats, StringIO
 
-from timegaps import FileSystemEntry, TimeFilter
+sys.path.insert(0, os.path.abspath('..'))
+from timegaps.timegaps import FileSystemEntry
+from timegaps.timefilter import TimeFilter
+
 
 import logging
 logging.basicConfig(
