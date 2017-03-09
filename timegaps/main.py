@@ -194,6 +194,7 @@ import argparse
 import logging
 import re
 import time
+from datetime import datetime
 from .timegaps import FileSystemEntry, FilterItem
 from .timefilter import TimeFilter, TimeFilterError
 
@@ -321,13 +322,12 @@ def main():
     # early as possible: might raise an exception.
     if options.reference_time is not None:
         log.info("Parse reference time from command line.")
-        reference_time = seconds_since_epoch_from_localtime_string(
+        reference_time = local_datetime_from_localtime_string(
             options.reference_time, "%Y%m%d-%H%M%S")
     else:
         log.debug("Get reference time: now.")
-        reference_time = time.time()
-    log.info("Using reference time %s (%s).",
-        reference_time, time.asctime(time.localtime(reference_time)))
+        reference_time = datetime.now()
+    log.info("Using reference time %s.", reference_time.isoformat())
     try:
         timefilter = TimeFilter(rules, reference_time)
     except TimeFilterError as e:
@@ -506,10 +506,10 @@ def prepare_input():
             itemstrings = [s.decode(sys.stdout.encoding) for s in itemstrings]
         items = []
         for s in itemstrings:
-            log.debug("Parsing seconds since epoch from item: %r", s)
-            mtime = seconds_since_epoch_from_localtime_string(s, fmt)
-            log.debug("Seconds since epoch: %s", mtime)
-            items.append(FilterItem(modtime=mtime, text=s))
+            log.debug("Parsing date from item: %r", s)
+            mdate = local_datetime_from_localtime_string(s, fmt)
+            log.debug("Date: %s", mdate)
+            items.append(FilterItem(moddate=mdate, text=s))
         return items
 
     log.info("Interpret items as paths.")
@@ -542,8 +542,8 @@ def prepare_input():
             bn = os.path.basename(path)
             fmt = options.time_from_basename
             log.debug("Parsing modification time from basename: %r", bn)
-            modtime = seconds_since_epoch_from_localtime_string(bn, fmt)
-            log.debug("Modification time (seconds since epoch): %s", modtime)
+            modtime = local_datetime_from_localtime_string(bn, fmt)
+            log.debug("Modification time: %s", modtime)
         try:
             fses.append(FileSystemEntry(path, modtime))
         except OSError:
@@ -552,26 +552,19 @@ def prepare_input():
     return fses
 
 
-def seconds_since_epoch_from_localtime_string(s, fmt):
+def local_datetime_from_localtime_string(s, fmt):
     """Extract local time from string `s` according to format string `fmt`.
 
-    Return floating point number, indicating seconds since epoch (non-localized
-    time, compatible with e.g. stat result st_mtime.
+    Return local time as a naive datetime object (no timezone info).
     """
     try:
         # Python 2.7's strptime can deal with `s` and `fmt` being byte string or
         # unicode. Python 3's strptime requires both to be unicode type. Since
         # argv is populated with unicode strings in Py 3, this requirement is
         # always fulfilled.
-        time_struct_local = time.strptime(s, fmt)
+        return datetime.strptime(s, fmt)
     except Exception as e:
         err("Error while parsing time from item string. Error: %s" % e)
-    try:
-        seconds_since_epoch = time.mktime(time_struct_local)
-    except Exception as e:
-        err(("Error while converting time struct to seconds since epoch. "
-            "Struct: %s. Error: %s" % (time_struct_local, e)))
-    return seconds_since_epoch
 
 
 def parse_rules_from_cmdline(s):

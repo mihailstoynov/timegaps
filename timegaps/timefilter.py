@@ -8,7 +8,7 @@ timegaps.timefilter -- generic time categorization logic as used by timegaps.
 
 
 from __future__ import unicode_literals
-import time
+import datetime
 import logging
 from collections import defaultdict
 from collections import OrderedDict
@@ -23,7 +23,7 @@ class TimeFilterError(Exception):
 
 class TimeFilter(object):
     """Represents certain time filtering rules. Allows for filtering objects
-    providing a `modtime` attribute.
+    providing a `moddate` attribute.
     """
     # Define valid categories in order from past to future (old -> young).
     valid_categories = ("years", "months", "weeks", "days", "hours", "recent")
@@ -34,10 +34,8 @@ class TimeFilter(object):
         time_categories = OrderedDict((c, 0) for c in self.valid_categories)
 
         # If the reference time is not provided by the user, use current time
-        # (Unix timestamp, seconds since epoch, no localization -- this is
-        # directly comparable to the st_mtime inode data).
-        self.reftime = time.time() if reftime is None else reftime
-        assert isinstance(self.reftime, float)
+        self.reftime = datetime.datetime.now() if reftime is None else reftime
+        assert isinstance(self.reftime, datetime.datetime)
 
         # Give 'em a more descriptive name.
         userrules = rules
@@ -101,10 +99,10 @@ class TimeFilter(object):
 
         # Categorize given objects.
         for obj in objs:
-            # Might raise AttributeError if `obj` does not have `modtime`
+            # Might raise AttributeError if `obj` does not have `moddate`
             # attribute or other exceptions upon `_Timedelta` creation.
             try:
-                td = _Timedelta(obj.modtime, self.reftime)
+                td = _Timedelta(obj.moddate, self.reftime)
             except _TimedeltaError as e:
                 raise TimeFilterError("Cannot categorize %s: %s" % (obj, e))
             # If timecount in youngest category after 'recent' is 0, then this
@@ -131,7 +129,7 @@ class TimeFilter(object):
         # Accept the newest element from each bucket.
         # The 'recent' items list needs special treatment. Sort, accept the
         # newest N elements.
-        self._recent_items.sort(key=lambda f: f.modtime)
+        self._recent_items.sort(key=lambda f: f.moddate)
         accepted_objs.extend(self._recent_items[-self.rules["recent"]:])
         # Iterate through all other categories except for 'recent'.
         # `catdict[timecount]` occurrences are lists with at least one item.
@@ -142,7 +140,7 @@ class TimeFilter(object):
         for catlabel in list(self.rules.keys())[:-1]:
             catdict = getattr(self, "_%s_dict" % catlabel)
             for timecount in catdict:
-                catdict[timecount].sort(key=lambda f: f.modtime)
+                catdict[timecount].sort(key=lambda f: f.moddate)
                 accepted_objs.append(catdict[timecount].pop())
                 #log.debug("Accepted %s: %s/%s.",
                 #    accepted_objs[-1], catlabel, timecount)
@@ -170,10 +168,7 @@ class _Timedelta(object):
     30 days, years are 365 days, weeks are 7 days, one day is 24 hours.
     """
     def __init__(self, t, ref):
-        # Expect two numeric values. Might raise TypeError for other types.
-        seconds_earlier = ref - t
-        assert isinstance(seconds_earlier, float)
-        if seconds_earlier < 0:
+        if t > ref:
             raise _TimedeltaError(("Modification time %s not " 
                 "earlier than reference time %s.") % (t, ref))
         self.hours = timediff.hours(t, ref)

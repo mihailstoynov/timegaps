@@ -13,7 +13,7 @@ import os
 import sys
 import time
 from base64 import b64encode
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from itertools import chain
 from random import randint, shuffle
 import collections
@@ -61,13 +61,14 @@ def randstring_fssafe():
 def fsegen(ref, N_per_cat, max_timecount):
     N = N_per_cat
     c = max_timecount
-    nowminusXyears =   (ref - 60 * 60 * 24 * 365 * i for i in nrndint(N, 1, c))
-    nowminusXmonths =  (ref - 60 * 60 * 24 * 30  * i for i in nrndint(N, 1, c))
-    nowminusXweeks =   (ref - 60 * 60 * 24 * 7   * i for i in nrndint(N, 1, c))
-    nowminusXdays =    (ref - 60 * 60 * 24       * i for i in nrndint(N, 1, c))
-    nowminusXhours =   (ref - 60 * 60            * i for i in nrndint(N, 1, c))
-    nowminusXseconds = (ref - 1                  * i for i in nrndint(N, 1, c))
-    times = chain(
+    def td(secs): return timedelta(seconds=secs)
+    nowminusXyears =   (ref - td(86400 * 365 * i) for i in nrndint(N, 1, c))
+    nowminusXmonths =  (ref - td(86400 * 30  * i) for i in nrndint(N, 1, c))
+    nowminusXweeks =   (ref - td(86400 * 7   * i) for i in nrndint(N, 1, c))
+    nowminusXdays =    (ref - td(86400       * i) for i in nrndint(N, 1, c))
+    nowminusXhours =   (ref - td(3600        * i) for i in nrndint(N, 1, c))
+    nowminusXseconds = (ref - td(1           * i) for i in nrndint(N, 1, c))
+    dates = chain(
         nowminusXyears,
         nowminusXmonths,
         nowminusXweeks,
@@ -75,7 +76,7 @@ def fsegen(ref, N_per_cat, max_timecount):
         nowminusXhours,
         nowminusXseconds,
         )
-    return (FilterItem(modtime=t) for t in times)
+    return (FilterItem(moddate=d) for d in dates)
 
 
 class TestBasicFSEntry(object):
@@ -114,18 +115,18 @@ class TestBasicFSEntry(object):
             assert fse.type == "file"
             assert isinstance(fse.moddate, datetime)
 
-    def test_custom_modtime(self):
+    def test_custom_moddate(self):
         with tempfile.NamedTemporaryFile() as t:
-            fse = FileSystemEntry(path=t.name, modtime=1.0)
+            fse = FileSystemEntry(path=t.name, moddate=datetime(1977, 7, 7))
             assert fse.type == "file"
             assert isinstance(fse.moddate, datetime)
 
-    def test_custom_modtime_wrongtype(self):
+    def test_custom_moddate_wrongtype(self):
         with tempfile.NamedTemporaryFile() as t:
             with raises(TimegapsError):
-                FileSystemEntry(path=t.name, modtime=1)
+                FileSystemEntry(path=t.name, moddate=date(1977, 7, 7))
             with raises(TimegapsError):
-                FileSystemEntry(path=t.name, modtime="foo")
+                FileSystemEntry(path=t.name, moddate="foo")
 
     @mark.skipif("WINDOWS")
     def test_symlink(self):
@@ -149,7 +150,7 @@ class TestTimeFilterInit(object):
         pass
 
     def test_reftime(self):
-        t = time.time()
+        t = datetime.now()
         f = TimeFilter(rules={"days": 1}, reftime=t)
         assert f.reftime == t
         time.sleep(SHORTTIME)
@@ -213,23 +214,22 @@ class TestTimedelta(object):
         pass
 
     def test_wrongtypes(self):
-        with raises(TypeError):
-            # unsupported operand type(s) for -: 'str' and 'NoneType'
+        with raises(Exception):
             _Timedelta(t=None, ref="a")
-
-    def test_floatdiff(self):
-        # Difference of time `t` and reference must be float.
-        with raises(AssertionError):
-            _Timedelta(t=0, ref=0)
+        with raises(Exception):
+            _Timedelta(t=0.0, ref=100.0)
 
     def test_future(self):
         # Time `t` later than reference.
         with raises(TimeFilterError):
-            _Timedelta(t=1.0, ref=0)
+            _Timedelta(t=datetime.now(),
+                       ref=datetime.now() - timedelta(hours=10))
 
     def test_types_math_year(self):
-        year_seconds =  60 * 60 * 24 * 365
-        d = _Timedelta(t=0.0, ref=year_seconds)
+        dt=datetime
+        # 1 year is exactly 365 * 24 hours, so calendar dates may
+        # differ if a leap year is involved.
+        d = _Timedelta(t=dt(2015, 3, 1), ref=dt(2016, 2, 29))
         assert d.years == 1
         assert isinstance(d.years, int)
         assert d.months == 12
@@ -242,8 +242,8 @@ class TestTimedelta(object):
         assert isinstance(d.hours, int)
 
     def test_types_math_hour(self):
-        hour_seconds =  60 * 60
-        d = _Timedelta(t=0.0, ref=hour_seconds)
+        dt=datetime
+        d = _Timedelta(t=dt(1915, 2, 24, 9, 35), ref=dt(1915, 2, 24, 10, 35))
         assert d.years == 0
         assert isinstance(d.years, int)
         assert d.months == 0
@@ -273,8 +273,8 @@ class TestTimeFilterBasic(object):
         # Create mock that is 1.5 hours old. Must end up in accepted list,
         # since it's 1 hour old and one item should be kept from the 1-hour-
         # old-category
-        fse = FilterItem(modtime=time.time()-60*60*1.5)
-        a, r = f.filter(objs=[fse])
+        fse = FilterItem(moddate=datetime.now()-timedelta(hours=1.5))
+        a, r = f.filter([fse])
         # http://stackoverflow.com/a/1952655/145400
         assert isinstance(a, collections.Iterable)
         assert isinstance(r, collections.Iterable)
@@ -283,8 +283,8 @@ class TestTimeFilterBasic(object):
 
     def test_hours_one_accepted_one_rejected(self):
         f = TimeFilter(rules={"hours": 1})
-        fse1 = FilterItem(modtime=time.time()-60*60*1.5)
-        fse2 = FilterItem(modtime=time.time()-60*60*1.6)
+        fse1 = FilterItem(moddate=datetime.now()-timedelta(minutes=65))
+        fse2 = FilterItem(moddate=datetime.now()-timedelta(minutes=70))
         a, r = f.filter(objs=[fse1, fse2])
         # The younger one must be accepted.
         assert a[0] == fse1
@@ -293,9 +293,9 @@ class TestTimeFilterBasic(object):
         assert len(r) == 1
 
     def test_two_recent(self):
-        fse1 = FilterItem(modtime=time.time())
+        fse1 = FilterItem(moddate=datetime.now())
         time.sleep(SHORTTIME)
-        fse2 = FilterItem(modtime=time.time())
+        fse2 = FilterItem(moddate=datetime.now())
         # fse2 is a little younger than fse1.
         time.sleep(SHORTTIME) # Make sure ref is newer than fse2.modtime.
         a, r = TimeFilter(rules={"recent": 1}).filter(objs=[fse1, fse2])
@@ -307,9 +307,9 @@ class TestTimeFilterBasic(object):
 
     def test_2_recent_10_allowed(self):
         # Request to keep more than available.
-        fse1 = FilterItem(modtime=time.time())
+        fse1 = FilterItem(moddate=datetime.now())
         time.sleep(SHORTTIME)
-        fse2 = FilterItem(modtime=time.time())
+        fse2 = FilterItem(moddate=datetime.now())
         time.sleep(SHORTTIME)
         a, r = TimeFilter(rules={"recent": 10}).filter(objs=[fse1, fse2])
         # All should be accepted. Within `recent` category,
@@ -323,10 +323,10 @@ class TestTimeFilterBasic(object):
     def test_2_years_10_allowed_past(self):
         # Request to keep more than available.
         # Produce one 9 year old, one 10 year old, keep 10 years.
-        nowminus10years = time.time() - (60*60*24*365 * 10 + 1)
-        nowminus09years = time.time() - (60*60*24*365 *  9 + 1)
-        fse1 = FilterItem(modtime=nowminus10years)
-        fse2 = FilterItem(modtime=nowminus09years)
+        nowminus10years = datetime.now() - timedelta(days=365 * 10 + 1)
+        nowminus09years = datetime.now() - timedelta(days=365 *  9 + 1)
+        fse1 = FilterItem(moddate=nowminus10years)
+        fse2 = FilterItem(moddate=nowminus09years)
         a, r = TimeFilter(rules={"years": 10}).filter(objs=[fse1, fse2])
         # All should be accepted.
         assert len(a) == 2
@@ -335,10 +335,10 @@ class TestTimeFilterBasic(object):
     def test_2_years_10_allowed_recent(self):
         # Request to keep more than available.
         # Produce one 1 year old, one 2 year old, keep 10 years.
-        nowminus10years = time.time() - (60*60*24*365 * 2 + 1)
-        nowminus09years = time.time() - (60*60*24*365 * 1 + 1)
-        fse1 = FilterItem(modtime=nowminus10years)
-        fse2 = FilterItem(modtime=nowminus09years)
+        nowminus10years = datetime.now() - timedelta(days=365 * 2 + 1)
+        nowminus09years = datetime.now() - timedelta(days=365 * 1 + 1)
+        fse1 = FilterItem(moddate=nowminus10years)
+        fse2 = FilterItem(moddate=nowminus09years)
         a, r = TimeFilter(rules={"years": 10}).filter(objs=[fse1, fse2])
         # All should be accepted.
         assert len(a) == 2
@@ -347,30 +347,30 @@ class TestTimeFilterBasic(object):
     def test_2_years_2_allowed(self):
         # Request to keep more than available.
         # Produce one 1 year old, one 2 year old, keep 10 years.
-        nowminus10years = time.time() - (60*60*24*365 * 2 + 1)
-        nowminus09years = time.time() - (60*60*24*365 * 1 + 1)
-        fse1 = FilterItem(modtime=nowminus10years)
-        fse2 = FilterItem(modtime=nowminus09years)
+        nowminus10years = datetime.now() - timedelta(days=365 * 2 + 1)
+        nowminus09years = datetime.now() - timedelta(days=365 * 1 + 1)
+        fse1 = FilterItem(moddate=nowminus10years)
+        fse2 = FilterItem(moddate=nowminus09years)
         a, r = TimeFilter(rules={"years": 2}).filter(objs=[fse1, fse2])
         # All should be accepted.
         assert len(a) == 2
         assert len(r) == 0
 
     def test_all_categories_1acc_1rej(self):
-        now = time.time()
-        nowminus1year = now -  (60*60*24*365 * 1 + 1)
-        nowminus1month = now - (60*60*24*30  * 1 + 1)
-        nowminus1week = now -  (60*60*24*7   * 1 + 1)
-        nowminus1day = now -   (60*60*24     * 1 + 1)
-        nowminus1hour = now -  (60*60        * 1 + 1)
-        nowminus1second = now - 1
-        nowminus2year = now -  (60*60*24*365 * 2 + 1)
-        nowminus2month = now - (60*60*24*30  * 2 + 1)
-        nowminus2week = now -  (60*60*24*7   * 2 + 1)
-        nowminus2day = now -   (60*60*24     * 2 + 1)
-        nowminus2hour = now -  (60*60        * 2 + 1)
-        nowminus2second = now - 2
-        atimes = (
+        now = datetime(2015, 12, 31, 12, 30, 45)
+        nowminus1year = datetime(2014, 12, 31)
+        nowminus2year = datetime(2013, 12, 31)
+        nowminus1month = datetime(2015, 11, 30)
+        nowminus2month = datetime(2015, 10, 31)
+        nowminus1week = datetime(2015, 12, 24)
+        nowminus2week = datetime(2015, 12, 17)
+        nowminus1day = datetime(2015, 12, 30)
+        nowminus2day = datetime(2015, 12, 29)
+        nowminus1hour = datetime(2015, 12, 31, 11, 30)
+        nowminus2hour = datetime(2015, 12, 31, 10, 30)
+        nowminus1second = datetime(2015, 12, 31, 12, 30, 44)
+        nowminus2second = datetime(2015, 12, 31, 12, 30, 43)
+        adates = (
             nowminus1year,
             nowminus1month,
             nowminus1week,
@@ -378,7 +378,7 @@ class TestTimeFilterBasic(object):
             nowminus1hour,
             nowminus1second,
             )
-        rtimes = (
+        rdates = (
             nowminus2year,
             nowminus2month,
             nowminus2week,
@@ -386,8 +386,8 @@ class TestTimeFilterBasic(object):
             nowminus2hour,
             nowminus2second,
             )
-        afses = [FilterItem(modtime=t) for t in atimes]
-        rfses = [FilterItem(modtime=t) for t in rtimes]
+        afses = [FilterItem(moddate=t) for t in adates]
+        rfses = [FilterItem(moddate=t) for t in rdates]
         cats = ("days", "years", "months", "weeks", "hours", "recent")
         rules = {c:1 for c in cats}
         a, r = TimeFilter(rules, now).filter(chain(afses, rfses))
@@ -403,9 +403,10 @@ class TestTimeFilterBasic(object):
         # Category 'overlap' must be possible (10 days > 1 week).
         # Having 15 FSEs, 1 to 15 days in age, the first 10 of them must be
         # accepted according to the 10-day-rule. The last 5 must be rejected.
-        now = time.time()
-        nowminusXdays = (now-(60*60*24*i+1) for i in range(1, 16))
-        fses = [FilterItem(modtime=t) for t in nowminusXdays]
+        now = datetime(2016, 1, 1)
+        nowminusXdays = (now-timedelta(seconds=60*60*24*i+1)
+                         for i in range(1, 16))
+        fses = [FilterItem(moddate=d) for d in nowminusXdays]
         rules = {"days": 10}
         a, r = TimeFilter(rules, now).filter(fses)
         assert len(a) == 10
@@ -428,9 +429,10 @@ class TestTimeFilterBasic(object):
         # not tested if these 10 FSEs have a certain order within the accepted-
         # list, because we don't make any guarantees about the
         # accepted-internal ordering.
-        now = time.time()
-        nowminusXdays = (now-(60*60*24*i+1) for i in range(1, 16))
-        fses = [FilterItem(modtime=t) for t in nowminusXdays]
+        now = datetime(2016, 1, 1)
+        nowminusXdays = (now-timedelta(seconds=60*60*24*i+1)
+                         for i in range(1, 16))
+        fses = [FilterItem(moddate=d) for d in nowminusXdays]
         rules = {"days": 10}
         shuffledfses = fses[:]
         for _ in range(100):
@@ -444,9 +446,10 @@ class TestTimeFilterBasic(object):
                 assert fse in r
 
     def test_create_recent_allow_old(self):
-        now = time.time()
-        nowminusXseconds = (now - (i + 1) for i in range(1, 16))
-        fses = [FilterItem(modtime=t) for t in nowminusXseconds]
+        now = datetime(2016, 1, 1)
+        nowminusXseconds = (now - timedelta(seconds=i + 1)
+                            for i in range(1, 16))
+        fses = [FilterItem(moddate=t) for t in nowminusXseconds]
         rules = {"years": 1}
         a, r = TimeFilter(rules, now).filter(fses)
         assert len(a) == 0
@@ -456,9 +459,10 @@ class TestTimeFilterBasic(object):
         # Create a few old items, between 1 and 15 years. Then only request one
         # recent item. This discovered a mean bug, where items to be rejected
         # ended up in the recent category.
-        now = time.time()
-        nowminusXyears = (now-(60*60*24*365 * i + 1) for i in range(1, 16))
-        fses = [FilterItem(modtime=t) for t in nowminusXyears]
+        now = datetime(2016, 1, 1)
+        nowminusXyears = (now-timedelta(seconds=60*60*24*365 * i + 1)
+                          for i in range(1, 16))
+        fses = [FilterItem(moddate=d) for d in nowminusXyears]
         rules = {"recent": 1}
         a, r = TimeFilter(rules, now).filter(fses)
         assert len(a) == 0
@@ -466,9 +470,10 @@ class TestTimeFilterBasic(object):
 
     def test_create_recent_dont_request_recent(self):
         # Create a few young items (recent ones). Then don't request any.
-        now = time.time()
-        nowminusXseconds = (now - (i + 1) for i in range(1, 16))
-        fses = [FilterItem(modtime=t) for t in nowminusXseconds]
+        now = datetime(2016, 1, 1)
+        nowminusXseconds = (now - timedelta(seconds=i + 1)
+                            for i in range(1, 16))
+        fses = [FilterItem(moddate=t) for t in nowminusXseconds]
         rules = {"years": 1, "recent": 0}
         a, r = TimeFilter(rules, now).filter(fses)
         assert len(a) == 0
@@ -490,9 +495,10 @@ class TestTimeFilterBasic(object):
         # In total FSEs 1-11,14 must be accepted, i.e. 12 FSEs. 15 FSEs are
         # used as input (1-15 days old), i.e. 3 are to be rejected (FSEs 12,
         # 13, 15).
-        now = time.time()
-        nowminusXdays = (now-(60*60*24*i+1) for i in range(1, 16))
-        fses = [FilterItem(modtime=t) for t in nowminusXdays]
+        now = datetime(2016, 1, 3)
+        nowminusXdays = (now - timedelta(days=i)
+                         for i in range(1, 16))
+        fses = [FilterItem(moddate=d) for d in nowminusXdays]
         rules = {"days": 10, "weeks": 2}
         a, r = TimeFilter(rules, now).filter(fses)
         r = list(r)
@@ -513,7 +519,7 @@ class TestTimeFilterBasic(object):
 class TestTimeFilterMass(object):
     """Test TimeFilter logic and arithmetics with largish mock object lists.
     """
-    now = time.time()
+    now = datetime(2016, 12, 31, 23, 59, 59)
     N = 1200
     # In all likelihood, each time category is present with 9 different
     # timecount values (1-9). Probability for occurrence of at least 1 item of

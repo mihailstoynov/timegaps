@@ -8,10 +8,7 @@ timegaps.timediff -- determine time differences in different granularities
 import datetime
 
 def seconds(t1, t2):
-    try:
-        return (t2 - t1).total_seconds()
-    except AttributeError:
-        return t2 - t1
+    return (t2 - t1).total_seconds()
 
 def hours(t1, t2):
     return int(seconds(t1, t2) / 3600)

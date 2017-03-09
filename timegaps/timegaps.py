@@ -8,6 +8,7 @@
 import os
 import sys
 import stat
+import time
 import datetime
 import logging
 
@@ -36,32 +37,24 @@ class FilterItem(object):
     Public interface:
         self.text:    unicode object describing this item or None.
         self.moddate: last change as local datetime object.
-        self.modtime: last change as float, seconds since Unix epoch (nonlocal).
     """
-    def __init__(self, modtime, text=None):
+    def __init__(self, moddate, text=None):
         if text is not None:
             assert isinstance(text, text_type)
         self.text = text
-        if isinstance(modtime, float):
-            self.modtime = modtime
+        if isinstance(moddate, datetime.datetime):
+            self.moddate = moddate
         else:
             raise TimegapsError(
-                "`modtime` parameter must be `float` type or `None`.")
-
-    @property
-    def moddate(self):
-        """Content modification time is internally stored as Unix timestamp.
-        Return datetime object corresponding to local time.
-        """
-        return datetime.datetime.fromtimestamp(self.modtime)
+                "`moddate` parameter must be `datetime` type.")
 
     def __str__(self):
         return "%s(text: %s, moddate: %s)" % (self.__class__.__name__,
             self.text, self.moddate)
 
     def __repr__(self):
-        return "%s(text=%s, modtime=%s)" % (self.__class__.__name__,
-            self.text, self.modtime)
+        return "%s(text=%s, moddate=%s)" % (self.__class__.__name__,
+            self.text, self.moddate)
 
 
 class FileSystemEntry(FilterItem):
@@ -71,7 +64,7 @@ class FileSystemEntry(FilterItem):
         self.type: "dir", "file", or "symlink".
         self.path: path to file system entry.
     """
-    def __init__(self, path, modtime=None):
+    def __init__(self, path, moddate=None):
         log.debug("Creating FileSystemEntry from path %r.", path)
         try:
             # os.lstat(path)
@@ -85,20 +78,20 @@ class FileSystemEntry(FilterItem):
             raise
         self.type = self._get_type(self._stat)
         log.debug("Detected type %s.", self.type)
-        if modtime is None:
-            # User may provide modification time -- if not, extract it from
+        if moddate is None:
+            # User may provide modification date -- if not, extract it from
             # inode. This is a Unix timestamp, seconds since epoch. Not
-            # localized.
-            modtime = self._stat.st_mtime
+            # localized, convert to localized datetime
+            moddate = datetime.datetime.fromtimestamp(self._stat.st_mtime)
         else:
-            log.debug("Don't use stat mtime, use %s.", modtime)
+            log.debug("Don't use stat mtime, use %s.", moddate)
         self.path = path
         # FilterItem requires unicode `text` attribute, decode path if not
         # already unicode:
         t = path
         if not isinstance(t, text_type):
             t = t.decode(sys.getfilesystemencoding())
-        FilterItem.__init__(self, text=t, modtime=modtime)
+        FilterItem.__init__(self, text=t, moddate=moddate)
 
     def _get_type(self, statobj):
         """Determine file type from stat object `statobj`.

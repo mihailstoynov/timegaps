@@ -4,7 +4,7 @@
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import chain
 from random import randint, shuffle
 import cProfile, pstats, StringIO
@@ -24,7 +24,7 @@ log.setLevel(logging.DEBUG)
 
 def main():
     t0 = time.time()
-    now = time.time()
+    now = datetime.now()
     fses = list(fsegen(ref=now, N_per_cat=5*10**4, max_timecount=9))
     shuffle(fses)
     nbr_fses = len(fses)
@@ -51,14 +51,14 @@ def main():
 
 
 class FileSystemEntryMock(FileSystemEntry):
-    def __init__(self, modtime):
-        self.modtime = modtime
+    def __init__(self, moddate):
+        self.moddate = moddate
 
     def __str__(self):
         return "%s(moddate: %s)" % (self.__class__.__name__, self.moddate)
 
     def __repr__(self):
-        return "%s(modtime=%s)" % (self.__class__.__name__, self.modtime)
+        return "%s(moddate=%s)" % (self.__class__.__name__, self.moddate)
 
 
 def nrandint(n, min, max):
@@ -67,15 +67,18 @@ def nrandint(n, min, max):
 
 
 def fsegen(ref, N_per_cat, max_timecount):
+
+    def td(seconds): return timedelta(seconds=seconds)
+    
     N = N_per_cat
     c = max_timecount
-    nowminusXyears =   (ref-60*60*24*365*i for i in nrandint(N, 1, c))
-    nowminusXmonths =  (ref-60*60*24*30 *i for i in nrandint(N, 1, c))
-    nowminusXweeks =   (ref-60*60*24*7  *i for i in nrandint(N, 1, c))
-    nowminusXdays =    (ref-60*60*24    *i for i in nrandint(N, 1, c))
-    nowminusXhours =   (ref-60*60       *i for i in nrandint(N, 1, c))
-    nowminusXseconds = (ref-1           *i for i in nrandint(N, 1, c))
-    times = chain(
+    nowminusXyears =   (ref-td(60*60*24*365*i) for i in nrandint(N, 1, c))
+    nowminusXmonths =  (ref-td(60*60*24*30 *i) for i in nrandint(N, 1, c))
+    nowminusXweeks =   (ref-td(60*60*24*7  *i) for i in nrandint(N, 1, c))
+    nowminusXdays =    (ref-td(60*60*24    *i) for i in nrandint(N, 1, c))
+    nowminusXhours =   (ref-td(60*60       *i) for i in nrandint(N, 1, c))
+    nowminusXseconds = (ref-td(1           *i) for i in nrandint(N, 1, c))
+    dates = chain(
         nowminusXyears,
         nowminusXmonths,
         nowminusXweeks,
@@ -83,7 +86,7 @@ def fsegen(ref, N_per_cat, max_timecount):
         nowminusXhours,
         nowminusXseconds,
         )
-    return (FileSystemEntryMock(modtime=t) for t in times)
+    return (FileSystemEntryMock(moddate=d) for d in dates)
 
 
 if __name__ == "__main__":
