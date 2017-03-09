@@ -644,3 +644,70 @@ class TestTimeFilterMass(object):
         # 4+12+6+10+48+5 = 85; there is 1 reducing overlap between days and weeks
         # and two more between hours and days -> 82 accepted items are expected.
         assert len(a) == 82
+
+
+class TestTimeFilterPeriodic(object):
+    """Tests for periodically creating and filtering items like in a script creating
+    and filtering backups which is periodically called.
+
+    For now, the tests demonstrate issues with periodical filter runs leading to
+    unexpected rejections of items.
+    """
+
+    def filter_and_delete(self, items, rules, ref_time):
+        a, _ = TimeFilter(rules, ref_time).filter(items)
+        return a
+
+    def test_periodic_creation_and_filtering_propagates_items(self):
+        rules = {
+            "recent": 100, # ensure nothing is deleted before entering the
+                           # 1-hour bucket
+            "hours": 2
+            }
+        current = datetime(2016, 1, 1, 0, 0, 0)
+        interval = timedelta(minutes=5)
+        items = []
+        for _ in range(50): # run for 4+ hrs
+            items.append(FilterItem(moddate=current))
+            items = self.filter_and_delete(items, rules, current)
+            current = current + interval
+
+        items = sorted(items, key=lambda f: f.moddate)
+        # EXPECTED: the oldest item is at least 2 hours old
+        # assert timediff.hours(items[0].moddate, current) >= 2
+        # BUT ACTUAL: items are deleted before they get 2 hours old
+        assert 1 <= timediff.hours(items[0].moddate, current) < 2
+
+    def test_periodic_filtering_is_stable(self):
+        start = datetime(2016, 1, 1, 23, 0)
+        items = []
+
+        # create items every 57 minutes, old enough, so they don't fall in the
+        # 'recent' category. Choose the times so that they initially fall into
+        # separate buckets when the timefilter is run at start.
+        previous = start - timedelta(hours=3, minutes=20)
+        for _ in range(3):
+            items.append(FilterItem(moddate=previous))
+            previous = previous - timedelta(minutes=57)
+
+        rules = { "hours": 50 } # within the test period, everything should be
+                                # retained.
+
+        # check precondition: when filtered at start, each item falls ito a
+        # separate bucket -- in other words, items is what could have been left
+        # by the 50-hours rule run at start time, even though the individual
+        # items are less than 60 minutes apart.
+        a, _ = TimeFilter(rules, start).filter(items)
+        assert len(a) == len(items)
+
+        # check stability: given that the oldest item is far from being dropped
+        # (way newer than 50 hours), every run within the following hour should
+        # leave what was left by the first run.
+        current = start
+        for _ in range(60):
+            a, _ = TimeFilter(rules, current).filter(items)
+            # EXPECTED: assert len(a) == len(items)
+            # BUT ACTUAL: Some item pairs fall into the same bucket as we go,
+            # resulting in deletions
+            assert len(a) <= len(items)
+            current = current + timedelta(minutes=1)
