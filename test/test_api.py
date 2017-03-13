@@ -514,7 +514,7 @@ class TestTimeFilterOverlappingRules(object):
     """Test and document behavior of overlapping rules.
     """
 
-    def test_overlapping_rules_accept_additional_items(self):
+    def test_overlapping_rules_dont_accept_additional_items(self):
         # check first rule: 24 hours, overlapping one day
         rules = { "hours": 24 }
         ref_time = datetime(2016, 1, 1)
@@ -526,29 +526,13 @@ class TestTimeFilterOverlappingRules(object):
         assert len(a) == 24
         assert set(a) == set(items[:24])
 
-        # check second rule:  1 day
-        rules = { "days": 1 }
-        a, _ = TimeFilter(rules, ref_time).filter(items)
-        # expect the most recent item of day 1 which is 24 hours old
-        assert len(a) == 1
-        assert a[0] == items[23]
-
-        # check combination
+        # combine with an overlapping "days1" rule
         rules = { "hours":  24, "days": 1 }
         a, _ = TimeFilter(rules, ref_time).filter(items)
-        # The combination of the two rules accepts more items than required by
-        # each of the single rules.
-        assert len(a) == 25
-        # The additional item is the second-recent item of day 1. This is due to
-        # items being consumed during categorization: as the "hours" rule is
-        # considered first, the most recent 24 items are dispatched into buckets
-        # within the "hours" category. The first item available to the "days1"
-        # category is then the 25th recent one -- it will be put into the
-        # "days1" bucket and later be accepted (in addition to the most recent
-        # item of day 1).
-        assert items[24] in a
-        # final sanity check
-        assert set(a) == set(items[:25])
+        # the result shouldn't change: the most recent 1-day old item is
+        # the same as the most recent 24-hour old item
+        assert len(a) == 24
+        assert set(a) == set(items[:24])
 
     def test_10_days_2_weeks(self):
         # Further define category 'overlap' behavior. {"days": 10, "weeks": 2}
@@ -556,16 +540,9 @@ class TestTimeFilterOverlappingRules(object):
         # included in the 10 days, and week 2 (14 days and older) is not
         # included in the 10 days.
         # Having 15 FSEs, 1 to 15 days in age, the first 10 of them must be
-        # accepted according to the 10-day-rule. The 11th, 12th, 13th FSE (11,
-        # 12, 13 days old) are categorized as 1 week old (their age A fulfills
-        # 7 days <= A < 14 days). According to the 2-weeks-rule, the most
-        # recent 1-week-old not affected by younger categories has to be
-        # accepted, which is the 11th FSE. Also according to the 2-weeks-rule,
-        # the most recent 2-week-old (not affected by a younger category, this
-        # is always condition) has to be accepted, which is the 14th FSE.
-        # In total FSEs 1-11,14 must be accepted, i.e. 12 FSEs. 15 FSEs are
-        # used as input (1-15 days old), i.e. 3 are to be rejected (FSEs 12,
-        # 13, 15).
+        # accepted according to the 10-day-rule. According to the 2-weeks-rule,
+        # the 7th and 14th FSEs must be accepted. The 7th FSE is included in
+        # the first 10, so items 1-10 and 14 are the accepted ones.
         now = datetime(2016, 1, 3)
         nowminusXdays = (now - timedelta(days=i)
                          for i in range(1, 16))
@@ -573,17 +550,17 @@ class TestTimeFilterOverlappingRules(object):
         rules = {"days": 10, "weeks": 2}
         a, r = TimeFilter(rules, now).filter(fses)
         r = list(r)
-        assert len(a) == 12
+        assert len(a) == 11
         # Check if first 11 fses are in accepted list (order can be predicted
         # according to current implementation, but should not be tested, as it
         # is not guaranteed according to the current specification).
-        for fse in fses[:11]:
+        for fse in fses[:10]:
             assert fse in a
         # Check if 14th FSE is accepted.
         assert fses[13] in a
         # Check if FSEs 12, 13, 15 are rejected.
-        assert len(r) == 3
-        for i in (11, 12, 14):
+        assert len(r) == 4
+        for i in (10, 11, 12, 14):
             assert fses[i] in r
 
 
@@ -613,74 +590,33 @@ class TestTimeFilterMass(object):
             assert len(a) == n
             assert len(list(r)) == len(self.fses) - n
 
-    def test_fixed_rules_week_month_overlap(self):
-        n = 8
-        rules = {
-            "years": n,
-            "months": n,
-            "weeks": n,
-            "days": n,
-            "hours": n,
-            "recent": n
-            }
-        # See test_random_times_mass_singlecat_rules for likelihood discussion.
-        # The rules say that we want 8 items accepted of each time category.
-        # There are two time categories with a 'reducing overlap' in this case:
-        # weeks and months. All other category pairs do not overlap at all or
-        # overlap without reduction. Explanation/specification:
-        # 8 hours:
-        #   'Younger' categories can steal from older ones. The 'recent'
-        #   cat cannot steal anything:
-        #   -> 8 items expected for the hours category.
-        #   category. 8 hours have no overlap with days (8 hours are 0 days),
-        #   so the hours category cannot steal from the days category
-        #   -> 8 items expected for the days category.
-        # 8 days:
-        #   day 7 and 8 could be categorized as 1 week, but become categorized
-        #   within the days dict (7 and 8 days are requested per days-rule).
-        #   Non-reducing overlap: 9 to 13 days are categorized as 1 week, which
-        #   is requested, and 9-day-old items actually are in the data set.
-        #   They are not stolen by younger categories (than week) and end up
-        #   in the 1-week-list.
-        #   -> 8 items expected from the weeks category.
-        # 8 weeks:
-        #   1-month-olds are all stolen by the 8-weeks-rule.
-        #   Items of age 8 weeks, i.e. 8*7 days = 56 days could be categorized
-        #   as 1 month, but become categorized within the weeks dictionary
-        #   (8 weeks old, which is requested per weeks-rule).
-        #   Reducing overlap: 9-week-old items in the data set, which are not
-        #   requested per weeks-rule are 9*7 days = 63 days old, i.e. 2 months
-        #   (2 months are 2*30 days = 60 days). These 2-month-old items are
-        #   not affected by younger data sets (than months), so they end up in
-        #   the 2-months-list.
-        #   -> In other words: there is no 1-month-list, since items of these
-        #   ages are *entirely* consumed by the weeks-rule. The oldest item
-        #   classified as 8 weeks old is already 2 months old:
-        #   8.99~ weeks == 62.00~ days > 60 days == 2 months.
-        #   -> the months-rule returns only 7 items (not 8, like the others)
-        # 8 months:
-        #   no overlap with years (0 years for all requested months)
-        a, _ = TimeFilter(rules, self.now).filter(self.fses)
-        # 8 items for all categories except for months (7 items expected).
-        assert len(a) == 6*8-1
+    def test_multicat_rules_yield_union_of_singlecat_rules(self):
+        N = 10
+        MAXCOUNT = 16
 
-    def test_fixed_rules_days_months_overlap(self):
-        rules = {
-            "years": 0,
-            "months": 2,
-            "weeks": 0,
-            "days": 62,
-            "hours": 0,
-            "recent": 0
+        def rndcount(): return randint(1, MAXCOUNT)
+
+        for _ in range(N):
+            rules = {
+                "years": rndcount(),
+                "months": rndcount(),
+                "weeks": rndcount(),
+                "days": rndcount(),
+                "hours": rndcount(),
+                "recent": rndcount()
             }
-        a, _ = TimeFilter(rules, self.now).filter(self.fses)
-        # 62 items are expected as of the 62-days-rule. No item is expected
-        # for 1-month-categorization. One item is expected for 2-month-catego-
-        # rization: items between 60 an 90 days can be categorized as 2 months
-        # old. A 9-week-old is in the data set, i.e. 63 days old, i.e. it's not
-        # collected by the 62-days rule, so it ends up being categorized as
-        # 2 months old.
-        assert len(a) == 63
+
+            single_results = set()
+            for category, timecount in rules.iteritems():
+                single_rule = dict.fromkeys(rules, 0)
+                single_rule[category] = timecount
+                a, _ = TimeFilter(single_rule, self.now).filter(self.fses)
+                assert len(a) == timecount
+                single_results.update(a)
+
+            multi_result, _ = TimeFilter(rules, self.now).filter(self.fses)
+            assert len(multi_result) == len(single_results)
+            assert set(multi_result) == single_results
 
     def test_1_day(self):
         rules = {"days": 1}
@@ -705,6 +641,6 @@ class TestTimeFilterMass(object):
             "recent": 5
             }
         a, _ = TimeFilter(rules, self.now).filter(self.fses)
-        # 4+12+6+10+48+5 = 85; there is 1 reducing overlap between hours and
-        # days -> 84 accepted items are expected.
-        assert len(a) == 84
+        # 4+12+6+10+48+5 = 85; there is 1 reducing overlap between days and weeks
+        # and two more between hours and days -> 82 accepted items are expected.
+        assert len(a) == 82

@@ -92,7 +92,6 @@ class TimeFilter(object):
         for catlabel in list(self.rules.keys())[:-1]:
             setattr(self, "_%s_dict" % catlabel, defaultdict(list))
         self._recent_items = []
-        accepted_objs = []
 
         # ensure we can iterate over objs twice even if it's an iterator
         objs = list(objs)
@@ -123,34 +122,40 @@ class TimeFilter(object):
                     # self._days_dict` with timecount (2) key.
                     #log.debug("Put %s into %s/%s.", obj, catlabel, timecount)
                     getattr(self, "_%s_dict" % catlabel)[timecount].append(obj)
-                    break
+
+        accepted_objs = set()
 
         # Sort all category-timecount buckets internally and filter them:
         # Accept the newest element from each bucket.
         # The 'recent' items list needs special treatment. Sort, accept the
         # newest N elements.
         self._recent_items.sort(key=lambda f: f.moddate)
-        accepted_objs.extend(self._recent_items[-self.rules["recent"]:])
+        for recent_item in self._recent_items[-self.rules["recent"]:]:
+            accepted_objs.add(recent_item)
+            # log.debug(
+            #    "Accepted %s: %s/%s",
+            #    recent_item, "recent", "?")
         # Iterate through all other categories except for 'recent'.
         # `catdict[timecount]` occurrences are lists with at least one item.
         # The newest item in each of these category-timecount buckets is to
-        # be accepted. Remove newest from the list via pop() (should be of
-        # constant time complexity for the last item of a list). Then reject
-        # the (modified, if item has been popped) list.
+        # be accepted.
         for catlabel in list(self.rules.keys())[:-1]:
             catdict = getattr(self, "_%s_dict" % catlabel)
             for timecount in catdict:
                 catdict[timecount].sort(key=lambda f: f.moddate)
-                accepted_objs.append(catdict[timecount].pop())
-                #log.debug("Accepted %s: %s/%s.",
-                #    accepted_objs[-1], catlabel, timecount)
+                # already_accepted = catdict[timecount][-1] in accepted_objs
+                accepted_objs.add(catdict[timecount][-1])
+                # log.debug(
+                #    "Accepted %s: %s/%s.%s",
+                #    catdict[timecount][-1], catlabel, timecount,
+                #    "(already accepted)" if already_accepted else "")
 
         # calculate the difference of objs and accepted_objs using list
         # comprehension instead of set.difference() -- it's deterministic (it
         # keeps the original order) while not necessarily slower:
         # https://gist.github.com/morenopc/10651856.
-        rejected_objs = [obj for obj in objs if obj not in set(accepted_objs)]
-        return accepted_objs, rejected_objs
+        rejected_objs = [obj for obj in objs if obj not in accepted_objs]
+        return sorted(accepted_objs, key=lambda f: f.moddate), rejected_objs
 
 
 class _TimedeltaError(TimeFilterError):
