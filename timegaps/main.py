@@ -363,7 +363,6 @@ def main():
         accepted, rejected = timefilter.filter(items)
     except TimeFilterError as e:
         err("Error while filtering items: %s" % e)
-    rejected = list(rejected)
     log.info("Number of accepted items: %s", len(accepted))
     log.info("Number of rejected items: %s", len(rejected))
     log.debug("Accepted item(s):\n%s", "\n".join("%s" % a for a in accepted))
