@@ -514,6 +514,42 @@ class TestTimeFilterOverlappingRules(object):
     """Test and document behavior of overlapping rules.
     """
 
+    def test_overlapping_rules_accept_additional_items(self):
+        # check first rule: 24 hours, overlapping one day
+        rules = { "hours": 24 }
+        ref_time = datetime(2016, 1, 1)
+        moddates = (ref_time - timedelta(hours=i)
+                    for i in range(1, 29))
+        items = [FilterItem(moddate=d) for d in moddates]
+        a, _ = TimeFilter(rules, ref_time).filter(items)
+        # expect the first 24 items to be accepted
+        assert len(a) == 24
+        assert set(a) == set(items[:24])
+
+        # check second rule:  1 day
+        rules = { "days": 1 }
+        a, _ = TimeFilter(rules, ref_time).filter(items)
+        # expect the most recent item of day 1 which is 24 hours old
+        assert len(a) == 1
+        assert a[0] == items[23]
+
+        # check combination
+        rules = { "hours":  24, "days": 1 }
+        a, _ = TimeFilter(rules, ref_time).filter(items)
+        # The combination of the two rules accepts more items than required by
+        # each of the single rules.
+        assert len(a) == 25
+        # The additional item is the second-recent item of day 1. This is due to
+        # items being consumed during categorization: as the "hours" rule is
+        # considered first, the most recent 24 items are dispatched into buckets
+        # within the "hours" category. The first item available to the "days1"
+        # category is then the 25th recent one -- it will be put into the
+        # "days1" bucket and later be accepted (in addition to the most recent
+        # item of day 1).
+        assert items[24] in a
+        # final sanity check
+        assert set(a) == set(items[:25])
+
     def test_10_days_2_weeks(self):
         # Further define category 'overlap' behavior. {"days": 10, "weeks": 2}
         # -> week 0 is included in the 10 days, week 1 is only partially
