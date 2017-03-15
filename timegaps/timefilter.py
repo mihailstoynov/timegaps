@@ -12,7 +12,7 @@ import time
 import logging
 from collections import defaultdict
 from collections import OrderedDict
-
+import timediff
 
 log = logging.getLogger("timefilter")
 
@@ -176,13 +176,8 @@ class _Timedelta(object):
         if seconds_earlier < 0:
             raise _TimedeltaError(("Modification time %s not " 
                 "earlier than reference time %s.") % (t, ref))
-        self.hours_exact = seconds_earlier / 3600      # 60 * 60
-        self.hours = int(self.hours_exact)
-        self.days_exact = seconds_earlier / 86400      # 60 * 60 * 24
-        self.days = int(self.days_exact)
-        self.weeks_exact = seconds_earlier / 604800    # 60 * 60 * 24 * 7
-        self.weeks = int(self.weeks_exact)
-        self.months_exact = seconds_earlier / 2592000  # 60 * 60 * 24 * 30
-        self.months = int(self.months_exact)
-        self.years_exact = seconds_earlier / 31536000  # 60 * 60 * 24 * 365
-        self.years = int(self.years_exact)
+        self.hours = timediff.hours(t, ref)
+        self.days = timediff.days(t, ref)
+        self.weeks = timediff.weeks(t, ref)
+        self.months = timediff.months(t, ref)
+        self.years = timediff.years(t, ref)
