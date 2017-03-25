@@ -299,16 +299,13 @@ class TestTimeFilterBasic(object):
         assert isinstance(a, collections.Iterable)
         assert isinstance(r, collections.Iterable)
         assert a[0] == fse
-        # Rejected list `r` is expected to be an interator, so convert to
-        # list before evaluating length.
-        assert len(list(r)) == 0
+        assert len(r) == 0
 
     def test_hours_one_accepted_one_rejected(self):
         f = TimeFilter(rules={"hours": 1})
         fse1 = FilterItem(modtime=time.time()-60*60*1.5)
         fse2 = FilterItem(modtime=time.time()-60*60*1.6)
         a, r = f.filter(objs=[fse1, fse2])
-        r = list(r)
         # The younger one must be accepted.
         assert a[0] == fse1
         assert len(a) == 1
@@ -322,7 +319,6 @@ class TestTimeFilterBasic(object):
         # fse2 is a little younger than fse1.
         time.sleep(SHORTTIME) # Make sure ref is newer than fse2.modtime.
         a, r = TimeFilter(rules={"recent": 1}).filter(objs=[fse1, fse2])
-        r = list(r)
         # The younger one must be accepted.
         assert a[0] == fse2
         assert len(a) == 1
@@ -336,7 +332,6 @@ class TestTimeFilterBasic(object):
         fse2 = FilterItem(modtime=time.time())
         time.sleep(SHORTTIME)
         a, r = TimeFilter(rules={"recent": 10}).filter(objs=[fse1, fse2])
-        r = list(r)
         # All should be accepted. Within `recent` category,
         # items must be sorted by modtime, with the newest element being the
         # last element.
@@ -353,7 +348,6 @@ class TestTimeFilterBasic(object):
         fse1 = FilterItem(modtime=nowminus10years)
         fse2 = FilterItem(modtime=nowminus09years)
         a, r = TimeFilter(rules={"years": 10}).filter(objs=[fse1, fse2])
-        r = list(r)
         # All should be accepted.
         assert len(a) == 2
         assert len(r) == 0
@@ -366,7 +360,6 @@ class TestTimeFilterBasic(object):
         fse1 = FilterItem(modtime=nowminus10years)
         fse2 = FilterItem(modtime=nowminus09years)
         a, r = TimeFilter(rules={"years": 10}).filter(objs=[fse1, fse2])
-        r = list(r)
         # All should be accepted.
         assert len(a) == 2
         assert len(r) == 0
@@ -379,7 +372,6 @@ class TestTimeFilterBasic(object):
         fse1 = FilterItem(modtime=nowminus10years)
         fse2 = FilterItem(modtime=nowminus09years)
         a, r = TimeFilter(rules={"years": 2}).filter(objs=[fse1, fse2])
-        r = list(r)
         # All should be accepted.
         assert len(a) == 2
         assert len(r) == 0
@@ -419,7 +411,6 @@ class TestTimeFilterBasic(object):
         cats = ("days", "years", "months", "weeks", "hours", "recent")
         rules = {c:1 for c in cats}
         a, r = TimeFilter(rules, now).filter(chain(afses, rfses))
-        r = list(r)
         # All nowminus1* must be accepted, all nowminus2* must be rejected.
         assert len(a) == 6
         for fse in afses:
@@ -437,7 +428,6 @@ class TestTimeFilterBasic(object):
         fses = [FilterItem(modtime=t) for t in nowminusXdays]
         rules = {"days": 10}
         a, r = TimeFilter(rules, now).filter(fses)
-        r = list(r)
         assert len(a) == 10
         assert len(r) == 5
         for fse in fses[:10]:
@@ -466,7 +456,6 @@ class TestTimeFilterBasic(object):
         for _ in range(100):
             shuffle(shuffledfses)
             a, r = TimeFilter(rules, now).filter(shuffledfses)
-            r = list(r)
             assert len(a) == 10
             assert len(r) == 5
             for fse in fses[:10]:
@@ -480,7 +469,6 @@ class TestTimeFilterBasic(object):
         fses = [FilterItem(modtime=t) for t in nowminusXseconds]
         rules = {"years": 1}
         a, r = TimeFilter(rules, now).filter(fses)
-        r = list(r)
         assert len(a) == 0
         assert len(r) == 15
 
@@ -493,7 +481,6 @@ class TestTimeFilterBasic(object):
         fses = [FilterItem(modtime=t) for t in nowminusXyears]
         rules = {"recent": 1}
         a, r = TimeFilter(rules, now).filter(fses)
-        r = list(r)
         assert len(a) == 0
         assert len(r) == 15
 
@@ -504,7 +491,6 @@ class TestTimeFilterBasic(object):
         fses = [FilterItem(modtime=t) for t in nowminusXseconds]
         rules = {"years": 1, "recent": 0}
         a, r = TimeFilter(rules, now).filter(fses)
-        r = list(r)
         assert len(a) == 0
         assert len(r) == 15
 
