@@ -628,10 +628,9 @@ class TestTimeFilterMass(object):
         #   -> the months-rule returns only 7 items (not 8, like the others)
         # 8 months:
         #   no overlap with years (0 years for all requested months)
-        a, r = TimeFilter(rules, self.now).filter(self.fses9)
+        a, _ = TimeFilter(rules, self.now).filter(self.fses9)
         # 8 items for all categories except for months (7 items expected).
         assert len(a) == 6*8-1
-        assert len(list(r)) == self.N*6 - (6*8-1)
 
     def test_fixed_rules_days_months_overlap(self):
         rules = {
@@ -642,7 +641,7 @@ class TestTimeFilterMass(object):
             "hours": 0,
             "recent": 0
             }
-        a, r = TimeFilter(rules, self.now).filter(self.fses62)
+        a, _ = TimeFilter(rules, self.now).filter(self.fses62)
         # 62 items are expected as of the 62-days-rule. No item is expected
         # for 1-month-categorization. One item is expected for 2-month-catego-
         # rization: items between 60 an 90 days can be categorized as 2 months
@@ -650,22 +649,19 @@ class TestTimeFilterMass(object):
         # collected by the 62-days rule, so it ends up being categorized as
         # 2 months old.
         assert len(a) == 63
-        assert len(list(r)) == self.N*6 - (63)
 
     def test_1_day(self):
         rules = {"days": 1}
-        a, r = TimeFilter(rules, self.now).filter(self.fses9)
+        a, _ = TimeFilter(rules, self.now).filter(self.fses9)
         assert len(a) == 1
-        assert len(list(r)) == self.N*6 - 1
 
     def test_1_recent_1_years(self):
         rules = {
             "years": 1,
             "recent": 1
             }
-        a, r = TimeFilter(rules, self.now).filter(self.fses9)
+        a, _ = TimeFilter(rules, self.now).filter(self.fses9)
         assert len(a) == 2
-        assert len(list(r)) == self.N*6 - 2
 
     def test_realistic_scheme(self):
         rules = {
@@ -676,8 +672,7 @@ class TestTimeFilterMass(object):
             "hours": 48,
             "recent": 5
             }
-        a, r = TimeFilter(rules, self.now).filter(self.fses62)
+        a, _ = TimeFilter(rules, self.now).filter(self.fses62)
         # 4+12+6+10+48+5 = 85; there is 1 reducing overlap between hours and
         # days -> 84 accepted items are expected.
         assert len(a) == 84
-        assert len(list(r)) == self.N*6 - 84
