@@ -87,25 +87,38 @@ def make_moddates(*args):
 def make_fses(*args):
     return [FilterItem(moddate=date) for date in make_moddates(*args)]
 
-def fsegen(ref, N_per_cat, max_timecount):
-    N = N_per_cat
-    c = max_timecount
-    def td(secs): return timedelta(seconds=secs)
-    nowminusXyears =   (ref - td(86400 * 365 * i) for i in nrndint(N, 1, c))
-    nowminusXmonths =  (ref - td(86400 * 30  * i) for i in nrndint(N, 1, c))
-    nowminusXweeks =   (ref - td(86400 * 7   * i) for i in nrndint(N, 1, c))
-    nowminusXdays =    (ref - td(86400       * i) for i in nrndint(N, 1, c))
-    nowminusXhours =   (ref - td(3600        * i) for i in nrndint(N, 1, c))
-    nowminusXseconds = (ref - td(1           * i) for i in nrndint(N, 1, c))
-    dates = chain(
-        nowminusXyears,
-        nowminusXmonths,
-        nowminusXweeks,
-        nowminusXdays,
-        nowminusXhours,
-        nowminusXseconds,
-        )
-    return (FilterItem(moddate=d) for d in dates)
+def make_dense_fses(ref):
+    """Generate a lot of FSEs that cover the timespan of all rules being
+    tested. Applying any rule on it should find an item for each
+    bucket, so that you can check a rule by just counting the number
+    of items found.
+    """
+
+    def add_fses(fses, ref, count, delta):
+        for _ in range(count):
+            ref = ref - delta;
+            fses.append(FilterItem(moddate=ref))
+        return ref
+
+    fses = []
+    # 'recent' items every 30 sec for 70 minutes
+    ref = add_fses(fses, ref, 140, timedelta(seconds=30))
+    # items every 12 minutes for 3 days
+    ref = add_fses(fses, ref, 360, timedelta(minutes=12))
+    # items every 1.5 hours for two weeks
+    ref = add_fses(fses, ref, 224, timedelta(minutes=90))
+    # items every 6 hours for two months
+    ref = add_fses(fses, ref, 240, timedelta(hours=6))
+    # items every day for 9 months
+    ref = add_fses(fses, ref, 270, timedelta(days=1))
+    # items every week for ~4 years
+    ref = add_fses(fses, ref, 208, timedelta(weeks=1))
+    # items every month for ~20 years
+    ref = add_fses(fses, ref, 240, timedelta(days=30))
+
+    shuffle(fses)
+
+    return fses
 
 
 class TestMakeModdates(object):
@@ -542,15 +555,8 @@ class TestTimeFilterMass(object):
     """Test TimeFilter logic and arithmetics with largish mock object lists.
     """
     now = datetime(2016, 12, 31, 23, 59, 59)
-    N = 1200
-    # In all likelihood, each time category is present with 9 different
-    # timecount values (1-9). Probability for occurrence of at least 1 item of
-    # e.g. value 2: 1 - (8/9)^N = 1 - 4E-62 for N == 1200
-    fses9 = list(fsegen(ref=now, N_per_cat=N, max_timecount=9))
-    shuffle(fses9)
-    # Probability: 1 - (61/62)^N = 1 - 3E-9 for N == 1200
-    fses62 = list(fsegen(ref=now, N_per_cat=N, max_timecount=62))
-    shuffle(fses62)
+    fses = make_dense_fses(ref=now)
+
     def setup(self):
         pass
 
@@ -567,13 +573,9 @@ class TestTimeFilterMass(object):
         rrecent = {"recent": n}
         # Run single-category filter on these fses.
         for rules in (ryears, rmonths, rweeks, rdays, rhours, rrecent):
-            a, r = TimeFilter(rules, self.now).filter(self.fses9)
-            # There must be 8 accepted items (e.g. 8 in hour category).
+            a, r = TimeFilter(rules, self.now).filter(self.fses)
             assert len(a) == n
-            # There are 6 time categories, N items for each category, and only
-            # n acceptances (for one single category), so N*6-n items must be
-            # rejected.
-            assert len(list(r)) == self.N * 6 - n
+            assert len(list(r)) == len(self.fses) - n
 
     def test_fixed_rules_week_month_overlap(self):
         n = 8
@@ -622,7 +624,7 @@ class TestTimeFilterMass(object):
         #   -> the months-rule returns only 7 items (not 8, like the others)
         # 8 months:
         #   no overlap with years (0 years for all requested months)
-        a, _ = TimeFilter(rules, self.now).filter(self.fses9)
+        a, _ = TimeFilter(rules, self.now).filter(self.fses)
         # 8 items for all categories except for months (7 items expected).
         assert len(a) == 6*8-1
 
@@ -635,7 +637,7 @@ class TestTimeFilterMass(object):
             "hours": 0,
             "recent": 0
             }
-        a, _ = TimeFilter(rules, self.now).filter(self.fses62)
+        a, _ = TimeFilter(rules, self.now).filter(self.fses)
         # 62 items are expected as of the 62-days-rule. No item is expected
         # for 1-month-categorization. One item is expected for 2-month-catego-
         # rization: items between 60 an 90 days can be categorized as 2 months
@@ -646,7 +648,7 @@ class TestTimeFilterMass(object):
 
     def test_1_day(self):
         rules = {"days": 1}
-        a, _ = TimeFilter(rules, self.now).filter(self.fses9)
+        a, _ = TimeFilter(rules, self.now).filter(self.fses)
         assert len(a) == 1
 
     def test_1_recent_1_years(self):
@@ -654,7 +656,7 @@ class TestTimeFilterMass(object):
             "years": 1,
             "recent": 1
             }
-        a, _ = TimeFilter(rules, self.now).filter(self.fses9)
+        a, _ = TimeFilter(rules, self.now).filter(self.fses)
         assert len(a) == 2
 
     def test_realistic_scheme(self):
@@ -666,7 +668,7 @@ class TestTimeFilterMass(object):
             "hours": 48,
             "recent": 5
             }
-        a, _ = TimeFilter(rules, self.now).filter(self.fses62)
+        a, _ = TimeFilter(rules, self.now).filter(self.fses)
         # 4+12+6+10+48+5 = 85; there is 1 reducing overlap between hours and
         # days -> 84 accepted items are expected.
         assert len(a) == 84
