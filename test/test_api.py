@@ -14,7 +14,7 @@ import sys
 import time
 from base64 import b64encode
 from datetime import date, datetime, timedelta
-from itertools import chain
+from itertools import chain, islice, izip, repeat
 from random import randint, shuffle
 import collections
 import tempfile
@@ -58,6 +58,35 @@ def randstring_fssafe():
     return b64encode(os.urandom(6)).replace(b'/', b'!')
 
 
+def make_moddates(*args):
+
+    def flatten(iterable):
+        for el in iterable:
+            if isinstance(el, collections.Iterable):
+                for sub in flatten(el):
+                    yield sub
+            else:
+                yield el
+
+    num_iterables = sum((isinstance(arg, collections.Iterable)
+                         for arg in args))
+
+    if num_iterables == 0:
+        raise TypeError("One of the date parts must be a sequence")
+
+    if num_iterables > 1:
+        raise TypeError("cannot handle multiple lists of date parts")
+
+
+    part_iters = (arg if isinstance(arg, collections.Iterable) else repeat(arg)
+                  for arg in args)
+
+    return [datetime(*flatten(parts)) for parts in izip(*part_iters)]
+
+
+def make_fses(*args):
+    return [FilterItem(moddate=date) for date in make_moddates(*args)]
+
 def fsegen(ref, N_per_cat, max_timecount):
     N = N_per_cat
     c = max_timecount
@@ -77,6 +106,31 @@ def fsegen(ref, N_per_cat, max_timecount):
         nowminusXseconds,
         )
     return (FilterItem(moddate=d) for d in dates)
+
+
+class TestMakeModdates(object):
+    """Self-test for the make_moddates helper function"""
+
+    def test_make_moddates_list(self):
+        dt = datetime
+        assert make_moddates(2016, 1, range(1, 5)) == [dt(2016, 1, 1),
+                                                       dt(2016, 1, 2),
+                                                       dt(2016, 1, 3),
+                                                       dt(2016, 1, 4)]
+
+    def test_make_moddates_list_of_tuples(self):
+        dt = datetime
+        assert make_moddates(2016, [(1, 12), (2, 13)]) == [dt(2016, 1, 12),
+                                                           dt(2016, 2, 13)]
+
+    def test_make_moddates_no_single_values(self):
+        with raises(TypeError):
+            make_moddates(2016, 1, 1)
+
+    def test_make_moddates_only_one_list(self):
+        with raises(TypeError):
+            make_moddates(2016, [1, 2], [1, 2, 3, 4])
+
 
 
 class TestBasicFSEntry(object):
@@ -260,6 +314,36 @@ class TestTimeFilterBasic(object):
     """Test TimeFilter logic and arithmetics with small, well-defined mock
     object lists.
     """
+
+    reftime = datetime(2016, 12, 31, 12, 35)
+    # lists of mock items, per category, partly overlapping (e.g. days/weeks,
+    # weeks/months)
+    fses10 = {
+        "recent": [FilterItem(moddate=reftime - timedelta(minutes=n))
+                   for n in range(1, 11)],
+        "hours": make_fses(2016, 12, 31, range(2, 12), 0),
+        "days": make_fses(2016, 12, range(21, 31)),
+        "weeks": make_fses(2016,
+                           [(12, 24), (12, 17), (12, 10), (12, 3), (11, 26),
+                            (11, 19), (11, 12), (11, 5), (10, 29), (10, 22)]),
+        "months": make_fses(2016, range(2, 12), 28),
+        "years": make_fses(range(2006, 2016), 12, 31)
+    }
+    # lists of mock items per category, not overlapping. Useful for testing
+    # that items don't "spill" into other categories (e.g. a "days" rule
+    # shouldn't find any items from "hours" or "weeks")
+    fses4 = {
+        "recent": [FilterItem(moddate=reftime - timedelta(minutes=n))
+                   for n in range(1, 5)],
+        "hours": make_fses(2016, 12, 31, range(8, 12), 0),
+        "days": make_fses(2016, 12, range(27, 31)),
+        "weeks": make_fses(2016, [(12, 24), (12, 17), (12, 10), (12, 3)]),
+        "months": make_fses(2016, range(8, 12), 20),
+        "years": make_fses(range(2012, 2016), 12, 31)
+    }
+
+    yearsago = make_fses(range(2016, 2005, -1), 12, 31)
+
     def setup(self):
         pass
 
@@ -267,13 +351,12 @@ class TestTimeFilterBasic(object):
         pass
 
     def test_minimal_functionality_and_types(self):
-        # Create filter with reftime NOW (if not specified otherwise)
-        # and simple rules.
-        f = TimeFilter(rules={"hours": 1})
+        # Create filter with reftime self.reftime
+        f = TimeFilter(rules={"hours": 1}, reftime=self.reftime)
         # Create mock that is 1.5 hours old. Must end up in accepted list,
         # since it's 1 hour old and one item should be kept from the 1-hour-
         # old-category
-        fse = FilterItem(moddate=datetime.now()-timedelta(hours=1.5))
+        fse = FilterItem(moddate=self.reftime-timedelta(hours=1.5))
         a, r = f.filter([fse])
         # http://stackoverflow.com/a/1952655/145400
         assert isinstance(a, collections.Iterable)
@@ -281,82 +364,76 @@ class TestTimeFilterBasic(object):
         assert a[0] == fse
         assert len(r) == 0
 
-    def test_hours_one_accepted_one_rejected(self):
-        f = TimeFilter(rules={"hours": 1})
-        fse1 = FilterItem(moddate=datetime.now()-timedelta(minutes=65))
-        fse2 = FilterItem(moddate=datetime.now()-timedelta(minutes=70))
-        a, r = f.filter(objs=[fse1, fse2])
-        # The younger one must be accepted.
-        assert a[0] == fse1
-        assert len(a) == 1
-        assert r[0] == fse2
-        assert len(r) == 1
+    def test_requesting_one_retrieves_most_recent(self):
+        for category, fses in self.fses10.iteritems():
+            f = TimeFilter({category: 1}, self.reftime)
+            a, r = f.filter(fses)
+            assert len(a) == 1
+            def moddates(fses): return map(lambda fse: fse.moddate, fses)
+            assert a[0].moddate == max(moddates(fses))
+            assert len(r) == 9
+            assert a[0] not in r
 
-    def test_two_recent(self):
-        fse1 = FilterItem(moddate=datetime.now())
-        time.sleep(SHORTTIME)
-        fse2 = FilterItem(moddate=datetime.now())
-        # fse2 is a little younger than fse1.
-        time.sleep(SHORTTIME) # Make sure ref is newer than fse2.modtime.
-        a, r = TimeFilter(rules={"recent": 1}).filter(objs=[fse1, fse2])
-        # The younger one must be accepted.
-        assert a[0] == fse2
-        assert len(a) == 1
-        assert r[0] == fse1
-        assert len(r) == 1
+    def test_requesting_less_than_available_retrieves_most_recent(self):
+        for category, fses in self.fses10.iteritems():
+            f = TimeFilter({category: 5}, self.reftime)
+            a, r = f.filter(fses)
+            assert len(a) == 5
+            assert len(r) == 5
+            def moddates(fses): return map(lambda fse: fse.moddate, fses)
+            assert min(moddates(a)) > max(moddates(r))
 
-    def test_2_recent_10_allowed(self):
-        # Request to keep more than available.
-        fse1 = FilterItem(moddate=datetime.now())
-        time.sleep(SHORTTIME)
-        fse2 = FilterItem(moddate=datetime.now())
-        time.sleep(SHORTTIME)
-        a, r = TimeFilter(rules={"recent": 10}).filter(objs=[fse1, fse2])
-        # All should be accepted. Within `recent` category,
-        # items must be sorted by modtime, with the newest element being the
-        # last element.
-        assert a[0] == fse1
-        assert a[1] == fse2
-        assert len(a) == 2
+    def test_requesting_all_available_retrieves_all(self):
+        for category, fses in self.fses10.iteritems():
+            f = TimeFilter({category: 10}, self.reftime)
+            a, r = f.filter(fses)
+            assert set(a) == set(fses)
+            assert len(r) == 0
+
+    def test_requesting_more_than_available_retrieves_all(self):
+        for category, fses in self.fses10.iteritems():
+            f = TimeFilter({category: 15}, self.reftime)
+            a, r = f.filter(fses)
+            assert set(a) == set(fses)
+            assert len(r) == 0
+
+    def test_requesting_newer_than_available_retrieves_none(self):
+        # excluding the "recent" category which will always accept the newest N
+        # items.
+        categories = ("hours", "days", "weeks", "months", "years")
+        # generate items 6-10 per category, in reverse order to increase
+        # the chance of discovering order dependencies in the filter.
+        fses10to6 = {cat : sorted(self.fses10[cat],
+                                  key=lambda x: x.moddate,
+                                  reverse=True)[5:]
+                     for cat in categories}
+
+        # now ask for the first 5 items of each category.
+        for category, fses in fses10to6.iteritems():
+            f = TimeFilter({category: 5}, self.reftime)
+            a, r = f.filter(fses)
+            assert len(a) == 0
+            assert set(r) == set(fses)
+
+    def test_request_less_than_available_distant(self):
+        # only distant items are present (at the beginning of the rule period)
+        fses = [self.yearsago[10], self.yearsago[9]]
+        rules = {"years": 10}
+        a, r = TimeFilter(rules, self.reftime).filter(fses)
+        assert set(a) == set(fses)
         assert len(r) == 0
 
-    def test_2_years_10_allowed_past(self):
-        # Request to keep more than available.
-        # Produce one 9 year old, one 10 year old, keep 10 years.
-        nowminus10years = datetime.now() - timedelta(days=365 * 10 + 1)
-        nowminus09years = datetime.now() - timedelta(days=365 *  9 + 1)
-        fse1 = FilterItem(moddate=nowminus10years)
-        fse2 = FilterItem(moddate=nowminus09years)
-        a, r = TimeFilter(rules={"years": 10}).filter(objs=[fse1, fse2])
-        # All should be accepted.
-        assert len(a) == 2
-        assert len(r) == 0
-
-    def test_2_years_10_allowed_recent(self):
-        # Request to keep more than available.
-        # Produce one 1 year old, one 2 year old, keep 10 years.
-        nowminus10years = datetime.now() - timedelta(days=365 * 2 + 1)
-        nowminus09years = datetime.now() - timedelta(days=365 * 1 + 1)
-        fse1 = FilterItem(moddate=nowminus10years)
-        fse2 = FilterItem(moddate=nowminus09years)
-        a, r = TimeFilter(rules={"years": 10}).filter(objs=[fse1, fse2])
-        # All should be accepted.
-        assert len(a) == 2
-        assert len(r) == 0
-
-    def test_2_years_2_allowed(self):
-        # Request to keep more than available.
-        # Produce one 1 year old, one 2 year old, keep 10 years.
-        nowminus10years = datetime.now() - timedelta(days=365 * 2 + 1)
-        nowminus09years = datetime.now() - timedelta(days=365 * 1 + 1)
-        fse1 = FilterItem(moddate=nowminus10years)
-        fse2 = FilterItem(moddate=nowminus09years)
-        a, r = TimeFilter(rules={"years": 2}).filter(objs=[fse1, fse2])
-        # All should be accepted.
-        assert len(a) == 2
+    def test_request_less_than_available_close(self):
+        # only close items are present (at the end of the rule period)
+        fses = [self.yearsago[1], self.yearsago[2]]
+        rules = {"years": 10}
+        a, r = TimeFilter(rules, self.reftime).filter(fses)
+        assert set(a) == set(fses)
         assert len(r) == 0
 
     def test_all_categories_1acc_1rej(self):
+        # test multiple categories -- for simplicity make sure that periods
+        # don't overlap
         now = datetime(2015, 12, 31, 12, 30, 45)
         nowminus1year = datetime(2014, 12, 31)
         nowminus2year = datetime(2013, 12, 31)
@@ -392,92 +469,37 @@ class TestTimeFilterBasic(object):
         rules = {c:1 for c in cats}
         a, r = TimeFilter(rules, now).filter(chain(afses, rfses))
         # All nowminus1* must be accepted, all nowminus2* must be rejected.
-        assert len(a) == 6
-        for fse in afses:
-            assert fse in a
-        for fse in rfses:
-            assert fse in r
-        assert len(r) == 6
+        assert set(a) == set(afses)
+        assert set(r) == set(rfses)
 
-    def test_10_days_overlap(self):
-        # Category 'overlap' must be possible (10 days > 1 week).
-        # Having 15 FSEs, 1 to 15 days in age, the first 10 of them must be
-        # accepted according to the 10-day-rule. The last 5 must be rejected.
-        now = datetime(2016, 1, 1)
-        nowminusXdays = (now-timedelta(seconds=60*60*24*i+1)
-                         for i in range(1, 16))
-        fses = [FilterItem(moddate=d) for d in nowminusXdays]
-        rules = {"days": 10}
-        a, r = TimeFilter(rules, now).filter(fses)
-        assert len(a) == 10
-        assert len(r) == 5
-        for fse in fses[:10]:
-            assert fse in a
-        for fse in fses[10:]:
-            assert fse in r
+    def test_requesting_older_categories_than_available_retrieves_none(self):
+        categories = ("recent", "hours", "days", "weeks", "months", "years")
+        fses = [self.fses4[cat] for cat in categories]
 
-    def test_10_days_order(self):
-        # Having 15 FSEs, 1 to 15 days in age, the first 10 of them must be
-        # accepted according to the 10-day-rule. The last 5 must be rejected.
-        # This test is focused on the right internal ordering when making the
-        # decision to accept or reject an item. The newest ones are expected to
-        # be accepted, while the oldest ones are expected to be rejected.
-        # In order to test robustness against input order, the list of mock
-        # FSEs is shuffled before filtering. The filtering and checks are
-        # repeated a couple of times.
-        # It is tested whether all of the youngest 10 FSEs are accepted. It is
-        # not tested if these 10 FSEs have a certain order within the accepted-
-        # list, because we don't make any guarantees about the
-        # accepted-internal ordering.
-        now = datetime(2016, 1, 1)
-        nowminusXdays = (now-timedelta(seconds=60*60*24*i+1)
-                         for i in range(1, 16))
-        fses = [FilterItem(moddate=d) for d in nowminusXdays]
-        rules = {"days": 10}
-        shuffledfses = fses[:]
-        for _ in range(100):
-            shuffle(shuffledfses)
-            a, r = TimeFilter(rules, now).filter(shuffledfses)
-            assert len(a) == 10
-            assert len(r) == 5
-            for fse in fses[:10]:
-                assert fse in a
-            for fse in fses[10:]:
-                assert fse in r
+        for n in range(1, len(categories)):
+            newer_fses = list(chain.from_iterable(islice(fses, n)))
 
-    def test_create_recent_allow_old(self):
-        now = datetime(2016, 1, 1)
-        nowminusXseconds = (now - timedelta(seconds=i + 1)
-                            for i in range(1, 16))
-        fses = [FilterItem(moddate=t) for t in nowminusXseconds]
-        rules = {"years": 1}
-        a, r = TimeFilter(rules, now).filter(fses)
-        assert len(a) == 0
-        assert len(r) == 15
+            rules = {categories[n]: 4}
+            a, r = TimeFilter(rules, self.reftime).filter(newer_fses)
+            assert len(a) == 0
+            assert set(r) == set(newer_fses)
 
-    def test_create_old_allow_recent(self):
-        # Create a few old items, between 1 and 15 years. Then only request one
-        # recent item. This discovered a mean bug, where items to be rejected
-        # ended up in the recent category.
-        now = datetime(2016, 1, 1)
-        nowminusXyears = (now-timedelta(seconds=60*60*24*365 * i + 1)
-                          for i in range(1, 16))
-        fses = [FilterItem(moddate=d) for d in nowminusXyears]
-        rules = {"recent": 1}
-        a, r = TimeFilter(rules, now).filter(fses)
-        assert len(a) == 0
-        assert len(r) == 15
+    def test_requesting_newer_categories_than_available_retrieves_none(self):
+        categories = ("years", "months", "weeks", "days", "hours", "recent")
+        fses = [self.fses4[cat] for cat in categories]
 
-    def test_create_recent_dont_request_recent(self):
-        # Create a few young items (recent ones). Then don't request any.
-        now = datetime(2016, 1, 1)
-        nowminusXseconds = (now - timedelta(seconds=i + 1)
-                            for i in range(1, 16))
-        fses = [FilterItem(moddate=t) for t in nowminusXseconds]
-        rules = {"years": 1, "recent": 0}
-        a, r = TimeFilter(rules, now).filter(fses)
-        assert len(a) == 0
-        assert len(r) == 15
+        for n in range(1, len(categories)):
+            older_fses = list(chain.from_iterable(islice(fses, n)))
+
+            rules = {categories[n]: 4}
+            a, r = TimeFilter(rules, self.reftime).filter(older_fses)
+            assert len(a) == 0
+            assert set(r) == set(older_fses)
+
+
+class TestTimeFilterOverlappingRules(object):
+    """Test and document behavior of overlapping rules.
+    """
 
     def test_10_days_2_weeks(self):
         # Further define category 'overlap' behavior. {"days": 10, "weeks": 2}
