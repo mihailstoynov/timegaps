@@ -163,14 +163,12 @@ class _TimedeltaError(TimeFilterError):
 
 
 class _Timedelta(object):
-    """
-    Represent how many years, months, weeks, days, hours time `t` (float,
-    seconds) is earlier than reference time `ref`. Represent these metrics
-    with integer attributes (floor division, numbers are cut, i.e. 1.9 years
-    would be 1 year).
-    There is no implicit summation, each of the numbers is to be considered
-    independently. Time units are considered strictly linear: months are
-    30 days, years are 365 days, weeks are 7 days, one day is 24 hours.
+    """Represent how many calendar years, months, weeks, days, hours time `t`
+    (datetime.datetime) is earlier than reference time `ref`. Differences are
+    based on calendar units, for example April 30 would be 1 month earlier than
+    May 1, or 7:59 would be 1 hour earlier than 8:00. Differences are considered
+    independently (e.g. 1 week usually isn't the same as 7 days) but may overlap
+    (e.g. days may be 730, which will often mean that years == 2)
     """
     def __init__(self, t, ref):
         if t > ref:

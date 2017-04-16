@@ -294,14 +294,12 @@ class TestTimedelta(object):
 
     def test_types_math_year(self):
         dt=datetime
-        # 1 year is exactly 365 * 24 hours, so calendar dates may
-        # differ if a leap year is involved.
         d = _Timedelta(t=dt(2015, 3, 1), ref=dt(2016, 2, 29))
         assert d.years == 1
         assert isinstance(d.years, int)
-        assert d.months == 12
+        assert d.months == 11
         assert isinstance(d.months, int)
-        assert d.weeks == 52
+        assert d.weeks == 53
         assert isinstance(d.weeks, int)
         assert d.days == 365
         assert isinstance(d.days, int)
@@ -673,10 +671,8 @@ class TestTimeFilterPeriodic(object):
             current = current + interval
 
         items = sorted(items, key=lambda f: f.moddate)
-        # EXPECTED: the oldest item is at least 2 hours old
-        # assert timediff.hours(items[0].moddate, current) >= 2
-        # BUT ACTUAL: items are deleted before they get 2 hours old
-        assert 1 <= timediff.hours(items[0].moddate, current) < 2
+        # the oldest item should be at least 2 hours old
+        assert timediff.hours(items[0].moddate, current) >= 2
 
     def test_periodic_filtering_is_stable(self):
         start = datetime(2016, 1, 1, 23, 0)
@@ -706,8 +702,5 @@ class TestTimeFilterPeriodic(object):
         current = start
         for _ in range(60):
             a, _ = TimeFilter(rules, current).filter(items)
-            # EXPECTED: assert len(a) == len(items)
-            # BUT ACTUAL: Some item pairs fall into the same bucket as we go,
-            # resulting in deletions
-            assert len(a) <= len(items)
+            assert len(a) == len(items)
             current = current + timedelta(minutes=1)
