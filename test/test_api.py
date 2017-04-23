@@ -634,16 +634,16 @@ class TestTimeFilterMass(object):
     def test_realistic_scheme(self):
         rules = {
             "years": 4,
-            "months": 12,
+            "months": 11,
             "weeks": 6,
             "days": 10,
             "hours": 48,
             "recent": 5
             }
         a, _ = TimeFilter(rules, self.now).filter(self.fses)
-        # 4+12+6+10+48+5 = 85; there is 1 reducing overlap between days and weeks
-        # and two more between hours and days -> 82 accepted items are expected.
-        assert len(a) == 82
+        # 4+11+6+10+48+5 = 84; there is 1 reducing overlap between days and weeks
+        # and two more between hours and days -> 81 accepted items are expected.
+        assert len(a) == 81
 
 
 class TestTimeFilterPeriodic(object):
