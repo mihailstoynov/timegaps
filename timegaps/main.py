@@ -138,46 +138,6 @@ Time categorization method:
         further sub-categorized. If specified in the rules, the <maxcount>
         newest recent items become accepted.
 
-Known issues:
-        Repeatedly running timegaps with --delete or --move may cause unexpected
-        deletion or moves of items, due to the fact that time categorization is
-        strictly relative to the given reference time.
-
-
-        a) Items don't propagate to the next category
-
-        This occurs, for example, if you call timegaps every time after you add
-        an item, and you're adding items more frequently than the length of a
-        category within the rule set. Say, the rules are "recent50,hours2..."
-        and you add an item every 5 minutes, no item older than one hour and
-        five minutes will be retained: when you have been creating items until
-        the first one is 1:05 hours old, the next timegaps run will delete that
-        item -- because there also will be an item that is 1:00 hour old, and
-        timegaps retains only the newest item in a category. When you run
-        timegaps the next time, another item crossed the 1-hour boundary, and
-        the previously retained item is deleted -- no item ever has the chance
-        to propagate into the 2-hour category or further.
-
-        (example taken from https://github.com/jgehrcke/timegaps/issues/3)
-
-
-        b) Items retained in the first place are deleted later
-
-        This occurs for example when time spans between item creation and / or
-        timegaps runs aren't totally regular.
-
-        Suppose a run with an "hours10" rule left two items, 1:50hrs and 2:20hrs
-        old. If you repeat the run after exactly one hour, both items will be
-        retained; they are now 2:50hrs and 3:20hrs old and thus fall into
-        different sub-categories. However, if you run timegaps again after
-        another 30 minutes, the items fall into the same sub-category (they are
-        now 3:20hrs and 3:50hrs old) and the second one is deleted.
-
-        More generally, whenever a timegaps run for a category leaves two items
-        that are less than the length of that category apart, a subsequent
-        timegaps run may delete one of those items.
-
-
 
 Exit status:
     0 upon success.
