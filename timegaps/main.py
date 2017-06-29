@@ -451,15 +451,6 @@ def prepare_input():
         # On Python 3 argv already comes in as sequence of unicode strings.
         # In file system mode on Python 2, treat items (i.e. paths) as byte
         # strings. In time-from-string mode, decode itemstrings (later).
-        if options.glob:
-            if WINDOWS:
-                import glob
-                expandeditems = []
-                for pattern in itemstrings:
-                    expandeditems.extend(glob.glob(pattern))
-                itemstrings = expandeditems
-            else:
-                log.info("Item wildcard expansion only allowed on Windows.")
     else:
         itemstrings = read_items_from_stdin()
         # `itemstrings` as returned by `read_items_from_stdin()` are unicode.
@@ -659,8 +650,6 @@ def parse_options():
         help="Attempt to move rejected paths to directory DIR."
         )
 
-    parser.add_argument("-g", "--glob", action="store_true",
-        help="Perform wildcard expansion on items provided via command line.")
     parser.add_argument("-r", "--recursive-delete", action="store_true",
         help="Enable deletion of non-empty directories.")
     #parser.add_argument("--follow-symlinks", action="store_true",
