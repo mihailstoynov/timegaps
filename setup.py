@@ -11,7 +11,7 @@ except ImportError:
 
 timegapsversion = re.search(
     "^__version__\s*=\s*'(.*)'",
-    open('timegaps/main.py').read(),
+    open('timegaps/main.py', encoding='utf-8').read(),
     re.M
     ).group(1)
 assert timegapsversion
