@@ -12,7 +12,7 @@ import datetime
 import logging
 from collections import defaultdict
 from collections import OrderedDict
-import timediff
+import .timediff
 
 log = logging.getLogger("timefilter")
 
